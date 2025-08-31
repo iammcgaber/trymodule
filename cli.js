@@ -1,15 +1,15 @@
 #! /usr/bin/env node
 
-var repl = require('repl')
-var path = require('path')
-var os = require('os')
-var colors = require('colors')
-var replHistory = require('repl.history')
-var vm = require('vm')
-var exec = require('child_process').exec
-var loadPackages = require('./index')
+const repl = require('repl')
+const path = require('path')
+const os = require('os')
+const colors = require('colors')
+const vm = require('vm')
+const { rm } = require('node:fs/promises')
+const loadPackages = require('./index')
+const { mkdirSync, existsSync } = require('fs')
 
-const TRYMODULE_PATH = process.env.TRYMODULE_PATH || path.resolve((os.homedir()), '.trymodule')
+const TRYMODULE_PATH = process.env.TRYMODULE_PATH || path.resolve(os.homedir(), '.trymodule')
 const TRYMODULE_HISTORY_PATH = process.env.TRYMODULE_HISTORY_PATH || path.resolve(TRYMODULE_PATH, 'repl_history')
 
 const flags = []
@@ -24,71 +24,100 @@ process.argv.slice(2).forEach(arg => {
   } else if (arg.indexOf('=') > -1) {
     // matches 'lodash=_', etc
     const i = arg.indexOf('=')
-    const module = arg.slice(0, i) // 'lodash'
-    const as = arg.slice(i + 1) // '_'
-    packages[module] = makeVariableFriendly(as) // ['lodash', '_']
+    const module = arg.slice(0, i)
+    const as = arg.slice(i + 1)
+    packages[module] = makeVariableFriendly(as)
   } else {
     // assume it's just a regular module name: 'lodash', 'express', etc
-    packages[arg] = makeVariableFriendly(arg) // call it the module's name
+    packages[arg] = makeVariableFriendly(arg)
   }
 })
 
-if (!flags.length && !Object.keys(packages).length) {
-  throw new Error('You need to provide some arguments!')
-}
-
 const logGreen = (msg) => console.log(colors.green(msg))
-
-const hasFlag = (flag) => flags.indexOf(flag) > -1
-
+const hasFlag = (flag) => flags.includes(flag)
 const addPackageToObject = (obj, pkg) => {
   logGreen(`Package '${pkg.name}' was loaded and assigned to '${pkg.as}' in the current scope`)
   obj[pkg.as] = pkg.package
   return obj
 }
 
-if (hasFlag('--clear')) {
-  console.log(`Removing folder ${TRYMODULE_PATH + '/node_modules'}`)
-  exec('rm -r ' + TRYMODULE_PATH + '/node_modules', (err, stdout, stderr) => {
-    if (!err) {
-      logGreen('Cache successfully cleared!')
-      process.exit(0)
-    } else {
-      throw new Error('Could not remove cache! Error ' + err)
-    }
-  })
-} else {
-  logGreen('Gonna start a REPL with packages installed and loaded for you')
+async function clearCache () {
+  try {
+    const nodeModulesPath = path.join(TRYMODULE_PATH, 'node_modules')
+    await rm(nodeModulesPath, { recursive: true, force: true })
+    logGreen('Cache successfully cleared!')
+  } catch (err) {
+    console.error('Error removing cache:', err)
+    process.exit(1)
+  }
+}
 
-  // Extract
-  loadPackages(packages, TRYMODULE_PATH).then((packages) => {
-    const contextPackages = packages.reduce((context, pkg) => {
+async function startRepl () {
+  // Ensure install directory exists
+  if (!existsSync(TRYMODULE_PATH)) {
+    try {
+      mkdirSync(TRYMODULE_PATH, { recursive: true })
+    } catch (e) {
+      console.error('Failed to create directory:', e)
+      process.exit(1)
+    }
+  }
+
+  try {
+    const installedPackages = await loadPackages(packages, TRYMODULE_PATH)
+    const contextPackages = installedPackages.reduce((context, pkg) => {
       return addPackageToObject(context, pkg)
     }, {})
     console.log('REPL started...')
     if (!process.env.TRYMODULE_NONINTERACTIVE) {
-      var replServer = repl.start({
+      const replServer = repl.start({
         prompt: '> ',
-        eval: function evalWithPromises (cmd, context, filename, callback) {
-          const script = new vm.Script(cmd)
-          var result = script.runInContext(replServer.context)
-          // Some libraries use non-native Promise implementations
-          // (ie lib$es6$promise$promise$$Promise)
-          if (result instanceof Promise || (typeof result === 'object' && typeof result.then === 'function')) {
-            console.log('Returned a Promise. waiting for result...')
-            result.then(function (val) {
-              callback(null, val)
-            })
-            .catch(function (err) {
-              callback(err)
-            })
-          } else {
-            callback(null, result)
+        eval: (cmd, context, filename, callback) => {
+          try {
+            const script = new vm.Script(cmd)
+            const runInContext = () => script.runInContext(replServer.context)
+            // Add a timeout to prevent hanging
+            const timeoutMs = 5000
+            const resultPromise = Promise.race([
+              Promise.resolve().then(runInContext),
+              new Promise((resolve, reject) => setTimeout(() => reject(new Error('Evaluation timeout')), timeoutMs))
+            ])
+            resultPromise.then((result) => {
+              if (result instanceof Promise || (result && typeof result.then === 'function')) {
+                console.log('Returned a Promise. waiting for result...')
+                result.then((val) => callback(null, val))
+                  .catch((err) => callback(err))
+              } else {
+                callback(null, result)
+              }
+            }).catch((err) => callback(err))
+          } catch (err) {
+            callback(err)
           }
         }
       })
-      replHistory(replServer, TRYMODULE_HISTORY_PATH)
-      replServer.context = Object.assign(replServer.context, contextPackages)
+
+      // Use built-in REPL persistent history (Node >=11.10)
+      if (replServer.setupHistory) {
+        replServer.setupHistory(TRYMODULE_HISTORY_PATH, (err) => {
+          if (err) console.error('History setup error:', err)
+        })
+      }
+
+      Object.assign(replServer.context, contextPackages)
     }
-  })
+  } catch (err) {
+    console.error(err && err.message ? err.message : err)
+    process.exit(1)
+  }
 }
+
+(async () => {
+  if (hasFlag('--clear')) {
+    await clearCache()
+    process.exit(0)
+  } else {
+    logGreen('Starting a REPL with packages installed and loaded for you...')
+    await startRepl()
+  }
+})()

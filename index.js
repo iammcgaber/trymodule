@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-var npmi = require('npmi')
-var path = require('path')
-var colors = require('colors')
+const path = require('path')
+const colors = require('colors')
+const { exec } = require('child_process')
+const fs = require('fs')
 
 const packageLocation = (pkg, installPath) => {
   return path.resolve(installPath, 'node_modules', pkg)
@@ -13,24 +14,31 @@ const loadPackage = (moduleName, moduleAs, installPath) => {
     try {
       const loadedPackage = require(packageLocation(moduleName, installPath))
       console.log(colors.blue(`'${moduleName}' was already installed since before!`))
-      resolve({name: moduleName, package: loadedPackage, as: moduleAs})
+      resolve({ name: moduleName, package: loadedPackage, as: moduleAs })
     } catch (err) {
       console.log(colors.yellow(`Couldn't find '${moduleName}' locally, gonna download it now`))
-      npmi({name: moduleName, path: installPath}, (err, result) => {
-        if (err) {
-          console.log(colors.red(err.message))
-          if (err.statusCode === 404) {
-            throw new Error(`Could not find package ${moduleName}`)
+      try { fs.mkdirSync(installPath, { recursive: true }) } catch (e) {}
+      // Ensure a package.json exists so npm links dependencies properly
+      const pkgJsonPath = path.join(installPath, 'package.json')
+      if (!fs.existsSync(pkgJsonPath)) {
+        try { fs.writeFileSync(pkgJsonPath, JSON.stringify({ name: 'trymodule-sandbox', private: true }, null, 2)) } catch (e) {}
+      }
+      const cmd = `npm install ${moduleName} --no-audit --progress=false --prefer-online`
+      exec(cmd, { cwd: installPath }, (error, stdout, stderr) => {
+        if (error) {
+          console.log(colors.red(stderr || error.message))
+          // npm exits with code 1 for not found; map to friendly errors expected by tests
+          if ((stderr || '').includes('E404') || /No matching version|ETARGET|ENOTFOUND|404/.test(stderr)) {
+            return reject(new Error(`Could not find package ${moduleName}`))
           }
-          if (err.code === npmi.LOAD_ERR) {
-            throw new Error('npm load error')
-          }
-          if (err.code === npmi.INSTALL_ERR) {
-            throw new Error('npm install error')
-          }
+          return reject(new Error('npm install error'))
         }
-        const loadedPackage = require(packageLocation(moduleName, installPath))
-        resolve({name: moduleName, package: loadedPackage, as: moduleAs})
+        try {
+          const loadedPackage = require(packageLocation(moduleName, installPath))
+          resolve({ name: moduleName, package: loadedPackage, as: moduleAs })
+        } catch (e2) {
+          reject(e2)
+        }
       })
     }
   })

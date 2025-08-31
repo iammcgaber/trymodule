@@ -14,14 +14,12 @@
   "repository": "https://github.com/VictorBjelkholm/trymodule",
   "license": "MIT",
   "dependencies": {
-    "colors": "^1.1.2",
-    "npmi": "^1.0.1",
-    "repl.history": "^0.1.3"
+    "colors": "^1.4.0"
   },
   "devDependencies": {
-    "standard": "^8.6.0"
+    "standard": "^17.1.2"
   },
   "engines": {
-    "node": ">=4.0.0"
+    "node": ">=18.0.0"
   }
 }
