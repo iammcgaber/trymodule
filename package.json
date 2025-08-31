@@ -1,7 +1,7 @@
 {
   "name": "trymodule",
   "version": "1.4.0",
-  "description": "It's never been easier to try nodejs modules!",
+  "description": "Launch a node repl with a module or multiple modules loaded in the current scope.",
   "main": "index.js",
   "scripts": {
     "test": "npm run lint && ./functional_test.sh",
@@ -10,8 +10,8 @@
   "bin": {
     "trymodule": "./cli.js"
   },
-  "author": "Victor Bjelkholm <victorbjelkholm@gmail.com> (https://www.github.com/victorbjelkholm)",
-  "repository": "https://github.com/VictorBjelkholm/trymodule",
+  "author": "Gabriel Sheeley <iammcgaber@gmail.com> (https://www.github.com/iammcgaber)",
+  "repository": "https://github.com/iammcgaber/trymodule",
   "license": "MIT",
   "dependencies": {
     "colors": "^1.4.0"

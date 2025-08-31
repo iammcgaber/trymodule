@@ -1,8 +1,7 @@
-## trymodule [![Circle CI](https://circleci.com/gh/VictorBjelkholm/trymodule/tree/master.svg?style=svg)](https://circleci.com/gh/VictorBjelkholm/trymodule/tree/master)
+## trymodule
 
-A simple cli tool for trying out different nodejs modules.
-
-![trymodule demo](preview.gif)
+A simple cli tool for trying out different nodejs modules. This work is based off of
+[lein-try](https://github.com/rkneufeld/lein-try) but updated to work with the latest versions of Node.
 
 ## Installation
 
